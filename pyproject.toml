@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crashsense"
+version = "0.2.0"
+description = "AI-powered crash log analyzer with memory and automated setup for local/API LLMs"
+authors = [{name="Your Name", email="you@example.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "click>=8.0",
+  "rich>=12.0",
+  "sqlalchemy>=1.4",
+  "python-dotenv>=0.21",
+  "keyring>=23.0",
+  "cryptography>=39.0",
+  "requests>=2.28",
+  "tabulate>=0.9",
+  "toml>=0.10"
+]
+
+[project.scripts]
+crashsense = "crashsense.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
