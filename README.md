@@ -6,7 +6,6 @@ AI-powered crash log analyzer with memory and automated setup for local/API LLMs
 
 - Automatically detects the most recent log file for analysis.
 - Includes the last terminal session history in the analysis.
-- Create fake log files for testing purposes.
 
 ## Install (editable)
 
@@ -34,11 +33,7 @@ crashsense init
 crashsense analyze
 ```
 
-- Create a fake log file for testing:
-
-```bash
-crashsense create-fake-log
-```
+ 
 
 - Include terminal history in the analysis for better context.
 
