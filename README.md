@@ -42,15 +42,23 @@ Launch the TUI:
 crashsense tui
 ```
 
-## Screenshots
 
-Below are example terminal screenshots; replace with your own as needed.
+## Workflow
 
-![Analyze output 1](image1.png)
+### Startup & Device Detection
+Shows CrashSense starting up and detecting the compute device.
 
-![Analyze output 2](image2.png)
+![Startup & Device Detection](image1.png)
 
-![Analyze output 3](image3.png)
+### Crash Log Analysis & Explanation
+Displays the analysis of a detected crash log, including parsed info and actionable remediation.
+
+![Crash Log Analysis & Explanation](image2.png)
+
+### Summary Table & Command Suggestions
+Summarizes the log analysis and presents any safe shell command suggestions.
+
+![Summary Table & Command Suggestions](image3.png)
 
 ## RAG docs (optional)
 
