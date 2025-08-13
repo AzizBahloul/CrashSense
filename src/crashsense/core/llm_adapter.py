@@ -1,14 +1,7 @@
-"""
-LLM Adapter supporting:
-- OpenAI (via HTTP API) — test the key by a small call
-- Local Ollama via CLI (subprocess) — pull/run models via ollama CLI
-
-Notes:
-- Ollama CLI behavior can vary across versions; this adapter uses the `ollama` binary when provider == "ollama".
-- All network or subprocess calls are executed only with user consent in the CLI flow.
-"""
-
+# src/crashsense/core/llm_adapter.py
 import os
+import time
+import math
 import requests
 import subprocess
 import re  # Add this import for sanitization
@@ -16,23 +9,127 @@ from typing import Optional
 from rich.console import Console  # Import Console from rich
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings"
 # Initialize the console for rich output
 console = Console()
 
 
 class LLMAdapter:
-    def __init__(self, provider="openai", local_model: Optional[str] = None):
+    def __init__(self, provider: str = "openai", local_model: Optional[str] = None):
         self.provider = provider
         self.openai_key = os.environ.get("CRASHSENSE_OPENAI_KEY")
         self.local_model = local_model
+        self._cache = {}
+        # Simple rate limit: minimum seconds between API calls
+        try:
+            self._min_call_interval = float(
+                os.environ.get("CRASHSENSE_MIN_CALL_INTERVAL_SEC", "1.0")
+            )
+        except ValueError:
+            self._min_call_interval = 1.0
+        self._last_call_ts = 0.0
+        # Embedding model selection for RAG
+        self._embed_model = os.environ.get(
+            "CRASHSENSE_OPENAI_EMBED_MODEL", "text-embedding-3-small"
+        )
+
+    def _rate_limit_sleep(self):
+        now = time.time()
+        elapsed = now - self._last_call_ts
+        if elapsed < self._min_call_interval:
+            time.sleep(self._min_call_interval - elapsed)
+        self._last_call_ts = time.time()
+
+    def _post_with_retries(
+        self, url: str, *, headers=None, json=None, timeout=60, max_retries=3
+    ):
+        """POST with basic retry/backoff on 429/5xx/timeouts."""
+        backoff = 1.0
+        for attempt in range(max_retries):
+            self._rate_limit_sleep()
+            try:
+                resp = requests.post(url, headers=headers, json=json, timeout=timeout)
+                # Retry on 429/5xx
+                if resp.status_code in (429, 500, 502, 503, 504):
+                    if attempt < max_retries - 1:
+                        time.sleep(backoff)
+                        backoff *= 2
+                        continue
+                return resp
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                if attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                raise
+        # Fallback shouldn't be reached; return last response or raise
+        return requests.post(url, headers=headers, json=json, timeout=timeout)
+
+    # --- RAG helpers -----------------------------------------------------
+    def _embed_openai(self, texts):
+        """Get embeddings from OpenAI for a list of strings."""
+        if not self.openai_key:
+            raise RuntimeError("OpenAI key not set for embeddings")
+        headers = {
+            "Authorization": f"Bearer {self.openai_key}",
+            "Content-Type": "application/json",
+        }
+        body = {"model": self._embed_model, "input": texts}
+        resp = self._post_with_retries(OPENAI_EMBED_URL, headers=headers, json=body, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        return [d["embedding"] for d in data.get("data", [])]
+
+    def _cosine(self, a, b):
+        num = sum(x * y for x, y in zip(a, b))
+        da = math.sqrt(sum(x * x for x in a))
+        db = math.sqrt(sum(y * y for y in b))
+        if da == 0 or db == 0:
+            return 0.0
+        return num / (da * db)
+
+    def retrieve(self, query: str, docs: list[str], top_k: int = 3) -> list[tuple[str, float]]:
+        """Simple retriever: try OpenAI embeddings; fallback to keyword overlap.
+
+        Returns list of (doc, score) sorted by score desc.
+        """
+        # Filter bad docs
+        docs = [d for d in docs if isinstance(d, str) and d.strip()]
+        if not docs:
+            return []
+        # Dense path
+        if self.openai_key:
+            try:
+                emb = self._embed_openai([query] + docs)
+                if not emb or len(emb) < 1:
+                    raise RuntimeError("No embedding returned")
+                qv, dv = emb[0], emb[1:]
+                scored = [(doc, self._cosine(qv, v)) for doc, v in zip(docs, dv)]
+                return sorted(scored, key=lambda x: x[1], reverse=True)[:top_k]
+            except Exception:
+                # Fall back to keyword below
+                pass
+        # Keyword fallback
+        qk = set(w for w in re.findall(r"\b\w+\b", query.lower()) if len(w) > 2)
+        scored = []
+        for doc in docs:
+            tk = set(w for w in re.findall(r"\b\w+\b", doc.lower()) if len(w) > 2)
+            inter = len(qk & tk)
+            scored.append((doc, float(inter)))
+        return sorted(scored, key=lambda x: x[1], reverse=True)[:top_k]
 
     def analyze(self, prompt: str, system: str = "You are CrashSense assistant."):
+        key = (self.provider, self.local_model, system, prompt[:4096])
+        if key in self._cache:
+            return self._cache[key]
         if self.provider == "openai" and self.openai_key:
-            return self._call_openai(prompt, system)
+            ans = self._call_openai(prompt, system)
         elif self.provider == "ollama":
-            return self._call_ollama(prompt)
+            ans = self._call_ollama(prompt)
         else:
-            return self._heuristic_answer(prompt)
+            ans = self._heuristic_answer(prompt)
+        self._cache[key] = ans
+        return ans
 
     def validate_openai_key(self) -> bool:
         if not self.openai_key:
@@ -70,12 +167,45 @@ class LLMAdapter:
             "max_tokens": 700,
             "temperature": 0.2,
         }
-        resp = requests.post(OPENAI_API_URL, headers=headers, json=body, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-        text = data["choices"][0]["message"]["content"].strip()
-        # return full LLM response as both explanation and patch so code examples are visible
-        return {"explanation": text, "root_cause": "See explanation", "patch": text}
+        try:
+            resp = self._post_with_retries(
+                OPENAI_API_URL, headers=headers, json=body, timeout=60
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = data["choices"][0]["message"]["content"].strip()
+            # return full LLM response as both explanation and patch so code examples are visible
+            return {
+                "explanation": text,
+                "root_cause": "See explanation",
+                "patch": text,
+            }
+        except requests.exceptions.Timeout:
+            return {
+                "explanation": "OpenAI request timed out. Try again or reduce max tokens.",
+                "root_cause": "timeout",
+                "patch": "",
+            }
+        except requests.exceptions.HTTPError as e:
+            status = getattr(e.response, "status_code", None)
+            if status == 401:
+                rc = "unauthorized"
+                exp = "OpenAI API rejected the request (401). Check CRASHSENSE_OPENAI_KEY."
+            elif status == 429:
+                rc = "rate_limited"
+                exp = (
+                    "Rate limited by OpenAI (429). Slow down requests or upgrade plan."
+                )
+            else:
+                rc = "http_error"
+                exp = f"OpenAI HTTP error: {status}"
+            return {"explanation": exp, "root_cause": rc, "patch": ""}
+        except Exception:
+            return {
+                "explanation": "Failed to call OpenAI API due to an unexpected error.",
+                "root_cause": "exception",
+                "patch": "",
+            }
 
     def _sanitize_string(self, value: str) -> str:
         """
@@ -107,6 +237,7 @@ class LLMAdapter:
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         try:
             # Fast ping to tags to check daemon and model presence
+            self._rate_limit_sleep()
             tags_resp = requests.get(f"{host}/api/tags", timeout=5)
             available_models = set()
             try:
@@ -123,10 +254,12 @@ class LLMAdapter:
                     "root_cause": "ollama_model_missing",
                     "patch": "",
                 }
-            resp = requests.post(
+            resp = self._post_with_retries(
                 f"{host}/api/generate",
+                headers=None,
                 json={"model": model, "prompt": prompt, "stream": False},
                 timeout=(5, timeout_s),
+                max_retries=3,
             )
             if resp.status_code == 200:
                 data = resp.json()

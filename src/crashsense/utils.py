@@ -1,6 +1,9 @@
+# src/crashsense/utils.py
 from pathlib import Path
 import shutil
 import subprocess
+import shlex
+from typing import Tuple
 from rich.console import Console
 
 console = Console()
@@ -65,7 +68,11 @@ def get_ollama_version() -> str:
     return None
 
 
-def detect_last_log(directories=None, extensions=(".log", ".txt")) -> str:
+def detect_last_log(
+    directories=None,
+    extensions=(".log", ".txt"),
+    exclude_patterns=None,
+) -> str:
     """
     Detect the most recently modified log file in the given directories.
     Searches recursively for files with the specified extensions.
@@ -75,17 +82,84 @@ def detect_last_log(directories=None, extensions=(".log", ".txt")) -> str:
             str(Path.home()),
             "/var/log",
         ]  # Limit search to common log directories
+    if exclude_patterns is None:
+        exclude_patterns = [
+            "google-chrome",
+            "extension state",
+            ".cache/",
+        ]
     try:
         files = []
         for directory in directories:
             dir_path = Path(directory)
             if dir_path.exists() and dir_path.is_dir():
-                files.extend(f for f in dir_path.rglob("*") if f.suffix in extensions)
+                for f in dir_path.rglob("*"):
+                    try:
+                        if f.suffix.lower() in extensions:
+                            path_lower = str(f).lower()
+                            if any(pat in path_lower for pat in exclude_patterns):
+                                continue
+                            files.append(f)
+                    except Exception:
+                        continue
         if not files:
             return None
-        # Find the most recently modified file
-        last_file = max(files, key=lambda f: f.stat().st_mtime)
-        return str(last_file)
+        # Consider only recent candidates to limit IO
+        files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        candidates = files[:200]
+
+        def score_file(p: Path) -> float:
+            s = 0.0
+            name = p.name.lower()
+            path_str = str(p).lower()
+            # Filename hints
+            for kw, w in (("error", 3), ("crash", 3), ("exception", 3), ("trace", 2), ("fail", 2)):
+                if kw in name:
+                    s += w
+            # Penalize noisy app data (e.g., Chrome extension state)
+            if any(bad in path_str for bad in [
+                "google-chrome/",
+                "extension state",
+                "chrome",
+                "/.cache/",
+            ]):
+                s -= 5
+            # Recency
+            try:
+                mtime = p.stat().st_mtime
+                s += (mtime / 1e9)  # monotonic-ish scaling without heavy math
+            except Exception:
+                pass
+            # Content sample
+            try:
+                head = p.read_bytes()[:4096]
+                text = head.decode("utf-8", errors="ignore").lower()
+                # Python
+                if "traceback (most recent call last)" in text:
+                    s += 5
+                if "error" in text or "exception" in text or "fatal" in text or "stack trace" in text:
+                    s += 2
+                # Apache
+                if "[error] [client" in text or "mod_wsgi" in text or "apache2" in text:
+                    s += 3
+                # Nginx
+                if "nginx" in text and "[error]" in text:
+                    s += 3
+                # System
+                if "/var/log/" in text or "kernel:" in text or "systemd" in text:
+                    s += 2
+                # Skip files with no crash/error pattern
+                if s == 0:
+                    return -1
+            except Exception:
+                return -1
+            return s
+
+        best = max(candidates, key=score_file)
+        # Ensure not obviously irrelevant
+        if score_file(best) <= 0:
+            return None
+        return str(best)
     except Exception as e:
         console.print(f"[red]Error detecting last log: {e}[/red]")
         return None
@@ -96,10 +170,21 @@ def read_terminal_history(limit=50) -> str:
     Read the last `limit` commands from the terminal history.
     """
     try:
-        result = subprocess.run(["history"], capture_output=True, text=True, shell=True)
-        if result.returncode == 0:
-            lines = result.stdout.strip().split("\n")
-            return "\n".join(lines[-limit:])
+        # Prefer reading bash history files directly to avoid invoking a shell.
+        candidates = [
+            Path.home() / ".bash_history",
+            Path.home() / ".zsh_history",
+            Path.home() / ".history",
+        ]
+        for f in candidates:
+            if f.exists() and f.is_file():
+                try:
+                    # Large files: read only the tail efficiently
+                    with f.open("r", encoding="utf-8", errors="ignore") as fh:
+                        lines = fh.read().splitlines()
+                        return "\n".join(lines[-limit:])
+                except Exception:
+                    continue
         return ""
     except Exception:
         return ""
@@ -150,6 +235,42 @@ def pull_ollama_model(model_name: str) -> bool:
     return False
 
 
+def has_shell_metacharacters(cmd: str) -> bool:
+    """
+    Detect common shell metacharacters that indicate complex shell expressions
+    (pipes, redirects, command substitution, backgrounding, etc.).
+    If present, we should not attempt to run with shell=False.
+    """
+    # Minimal, conservative set
+    forbidden = ["|", "&", ";", ">", "<", "`", "$(", ")", "(", "\n"]
+    return any(ch in cmd for ch in forbidden)
+
+
+def run_command_safe(cmd: str, timeout: int = 600) -> Tuple[int, str, str]:
+    """
+    Run a simple command safely without invoking a shell.
+    Rejects commands containing shell metacharacters.
+    Returns (returncode, stdout, stderr).
+    """
+    if has_shell_metacharacters(cmd):
+        return (127, "", "Unsafe shell metacharacters detected; refusing to run.")
+    try:
+        parts = shlex.split(cmd)
+    except Exception as e:
+        return (127, "", f"Failed to parse command: {e}")
+    if not parts:
+        return (0, "", "")
+    try:
+        cp = subprocess.run(parts, capture_output=True, text=True, timeout=timeout)
+        return (cp.returncode, cp.stdout, cp.stderr)
+    except FileNotFoundError as e:
+        return (127, "", str(e))
+    except subprocess.TimeoutExpired:
+        return (124, "", "Command timed out")
+    except Exception as e:
+        return (1, "", str(e))
+
+
 def create_fake_log(directory: str, filename: str = "fake_log.log") -> str:
     """
     Create a fake log file for testing purposes.
@@ -176,16 +297,16 @@ def create_error_log(directory: str, filename: str = "error_sample.log") -> str:
         "2025-08-12 10:15:43,120 [INFO] Starting job worker\n"
         "2025-08-12 10:15:43,321 [DEBUG] loading config from /etc/myapp/config.yml\n\n"
         "Traceback (most recent call last):\n"
-        "  File \"/app/main.py\", line 10, in <module>\n"
+        '  File "/app/main.py", line 10, in <module>\n'
         "    run()\n"
-        "  File \"/app/main.py\", line 6, in run\n"
+        '  File "/app/main.py", line 6, in run\n'
         "    result = divide(10, 0)\n"
-        "  File \"/app/utils.py\", line 2, in divide\n"
+        '  File "/app/utils.py", line 2, in divide\n'
         "    return a / b\n"
         "ZeroDivisionError: division by zero\n\n"
         "During handling of the above exception, another exception occurred:\n\n"
         "Traceback (most recent call last):\n"
-        "  File \"/app/worker.py\", line 42, in process\n"
+        '  File "/app/worker.py", line 42, in process\n'
         "    open('/var/log/myapp/output.log').write('done')\n"
         "PermissionError: [Errno 13] Permission denied: '/var/log/myapp/output.log'\n\n"
         "2025-08-12 10:15:43,999 [ERROR] worker crashed\n"
@@ -228,9 +349,7 @@ def detect_compute_device() -> str:
 
     # AMD ROCm
     try:
-        cp = subprocess.run(
-            ["rocm-smi"], capture_output=True, text=True, timeout=2
-        )
+        cp = subprocess.run(["rocm-smi"], capture_output=True, text=True, timeout=2)
         if cp.returncode == 0 and (cp.stdout or ""):
             return "GPU (AMD)"
     except FileNotFoundError:

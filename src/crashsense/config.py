@@ -11,6 +11,19 @@ DEFAULT_CONFIG = {
     },
     "security": {"use_keyring": True},
     "last": {"last_log": str(Path.home() / ".crashsense" / "last.log")},
+    "rag": {
+        "enabled": True,
+        "docs": [
+            str(Path.cwd() / "kb"),
+            str(Path.cwd() / "src" / "data" / "crashsense_best_practices.md"),
+            str(Path.cwd() / "src" / "data" / "python_exceptions_playbook.md"),
+            str(Path.cwd() / "src" / "data" / "web_server_error_patterns.md"),
+            str(Path.cwd() / "src" / "data" / "linux_permission_paths.md"),
+        ],
+        "chunk_chars": 800,
+        "chunk_overlap": 120,
+        "top_k": 3,
+    },
 }
 
 CONFIG_PATH = Path.home() / ".crashsense" / "config.toml"

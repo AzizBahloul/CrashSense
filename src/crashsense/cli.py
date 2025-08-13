@@ -1,3 +1,4 @@
+# src/crashsense/cli.py
 import click
 import subprocess
 import os
@@ -21,6 +22,7 @@ from .utils import (
     check_ollama_running,  # Moved to utils.py
     pull_ollama_model,  # Moved to utils.py
     detect_compute_device,
+    run_command_safe,
 )
 # run_tui will be imported lazily inside the tui() command
 
@@ -37,9 +39,22 @@ def try_install_ollama():
     console.print(
         "[yellow]Attempting to install Ollama via the official installer...[/yellow]"
     )
-    cmd = "curl -fsSL https://ollama.com/install.sh | sh"
-    # For safety, run via shell only if user confirmed earlier.
-    return subprocess.run(cmd, shell=True).returncode == 0
+    # Avoid shell pipelines; try to fetch installer first, then run sh on file.
+    try:
+        import tempfile
+        import urllib.request
+
+        with tempfile.TemporaryDirectory() as td:
+            installer = Path(td) / "install.sh"
+            urllib.request.urlretrieve("https://ollama.com/install.sh", installer)
+            cp = subprocess.run(["sh", str(installer)], timeout=600)
+            return cp.returncode == 0
+    except Exception:
+        # Fallback: inform user to install manually for safety.
+        console.print(
+            "[yellow]Automatic install failed. Please install manually from https://ollama.com[/yellow]"
+        )
+        return False
 
 
 def test_openai_key(key: str) -> bool:
@@ -54,7 +69,108 @@ def main(ctx):
     """CrashSense - AI-powered crash analysis"""
     if ctx.invoked_subcommand is None:
         # No args: emulate `analyze` with no logfile
-        analyze.callback(None)
+        return ctx.invoke(analyze, logfile=None, includes=(), excludes=())
+
+
+@main.group()
+def rag():
+    """Manage Retrieval-Augmented Generation (RAG) docs and indexing."""
+    pass
+
+
+@rag.command("add")
+@click.argument("paths", nargs=-1, type=click.Path(exists=True))
+def rag_add(paths):
+    """Add one or more files/dirs to RAG docs."""
+    if not paths:
+        console.print("[yellow]No paths provided.[/yellow]")
+        return
+    cfg = load_config()
+    rag_cfg = cfg.setdefault("rag", {})
+    docs = set(rag_cfg.get("docs") or [])
+    added = []
+    for p in paths:
+        p_str = str(Path(p).resolve())
+        if p_str not in docs:
+            docs.add(p_str)
+            added.append(p_str)
+    rag_cfg["docs"] = sorted(docs)
+    save_config(cfg)
+    if added:
+        console.print(Panel.fit("\n".join(added), title="Added to RAG docs", border_style="green"))
+    else:
+        console.print("[dim]No new docs added.[/dim]")
+
+
+@rag.command("clear")
+def rag_clear():
+    """Clear all configured RAG docs (keeps bundled ./kb)."""
+    cfg = load_config()
+    rag_cfg = cfg.setdefault("rag", {})
+    # Keep default kb if present in defaults
+    default_kb = str(Path.cwd() / "kb")
+    rag_cfg["docs"] = [d for d in rag_cfg.get("docs", []) if d == default_kb]
+    save_config(cfg)
+    console.print("[green]RAG docs cleared (bundled kb retained if present).[/green]")
+
+
+@rag.command("build")
+@click.option("--dry-run", is_flag=True, help="Only report chunk stats without saving anything.")
+def rag_build(dry_run):
+    """Chunk configured docs and report stats (retrieval uses these on demand)."""
+    cfg = load_config()
+    rag_cfg = cfg.get("rag", {})
+    paths = rag_cfg.get("docs") or []
+    size = int(rag_cfg.get("chunk_chars", 800))
+    overlap = int(rag_cfg.get("chunk_overlap", 120))
+    total_chunks = 0
+    files = 0
+    from pathlib import Path as _P
+    exts = {".md", ".txt", ".log", ".py", ".rst", ".json", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg", ".csv"}
+    for p in paths:
+        try:
+            path = _P(p)
+            if path.is_file():
+                try:
+                    txt = path.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+                chunks = _chunk_text_cli(txt, size, overlap)
+                total_chunks += len(chunks)
+                files += 1
+            elif path.is_dir():
+                for child in path.rglob("*"):
+                    if not child.is_file():
+                        continue
+                    if child.suffix.lower() not in exts:
+                        continue
+                    try:
+                        txt = child.read_text(encoding="utf-8", errors="ignore")
+                    except Exception:
+                        continue
+                    chunks = _chunk_text_cli(txt, size, overlap)
+                    total_chunks += len(chunks)
+                    files += 1
+        except Exception:
+            continue
+    console.print(Panel.fit(f"Files processed: {files}\nChunks (~{size} chars, overlap {overlap}): {total_chunks}", title="RAG Build", border_style="cyan"))
+    if not dry_run:
+        console.print("[dim]No persistent index is created; retrieval embeds on demand.[/dim]")
+
+
+def _chunk_text_cli(text: str, size: int, overlap: int):
+    if size <= 0:
+        return [text]
+    chunks = []
+    start = 0
+    n = len(text)
+    while start < n:
+        end = min(n, start + size)
+        chunks.append(text[start:end])
+        if end == n:
+            break
+        start = max(end - overlap, start + 1)
+    return chunks
 
 
 @main.command()
@@ -71,10 +187,18 @@ def init():
 
     if provider == "openai":
         console.print("OpenAI selected. We will validate your API key.")
-        key = Prompt.ask(
-            "Enter OpenAI API key (or set CRASHSENSE_OPENAI_KEY env var)",
-            default=os.environ.get("CRASHSENSE_OPENAI_KEY", ""),
-        )
+        env_key = os.environ.get("CRASHSENSE_OPENAI_KEY")
+        if env_key and Confirm.ask(
+            "Use the API key from environment variable CRASHSENSE_OPENAI_KEY?",
+            default=True,
+        ):
+            key = env_key
+        else:
+            key = Prompt.ask(
+                "Enter OpenAI API key",
+                password=True,
+                show_default=False,
+            )
         if key:
             console.print("Testing OpenAI key...")
             ok = test_openai_key(key)
@@ -156,7 +280,19 @@ def init():
 
 @main.command()
 @click.argument("logfile", type=click.Path(exists=True), required=False)
-def analyze(logfile):
+@click.option(
+    "--include",
+    "includes",
+    multiple=True,
+    help="Directories to scan for logs (can be repeated)",
+)
+@click.option(
+    "--exclude",
+    "excludes",
+    multiple=True,
+    help="Case-insensitive substrings to exclude from auto-detection",
+)
+def analyze(logfile, includes, excludes):
     """
     Analyze a crash log file. Automatically detects the latest log file if none is provided.
     """
@@ -176,7 +312,9 @@ def analyze(logfile):
             progress.add_task(
                 description="Looking for the latest crash log...", total=None
             )
-            logfile = detect_last_log()
+            directories = list(includes) if includes else None
+            exclude_patterns = list(excludes) if excludes else None
+            logfile = detect_last_log(directories=directories, exclude_patterns=exclude_patterns)
         if logfile:
             console.print(
                 Panel.fit(
@@ -247,17 +385,33 @@ def analyze(logfile):
         )
     )
 
-    # If LLM included commands in output, attempt to parse them (very simple heuristic)
-    commands = []
+    # Add summary table for analyzed logs (single or batch)
+    if isinstance(parsed, dict) and parsed.get('log_type'):
+        from rich.table import Table
+        table = Table(title="Log Analysis Summary")
+        table.add_column("Log Type", style="cyan")
+        table.add_column("Exception", style="magenta")
+        table.add_column("Status", style="green")
+        table.add_column("Patch", style="yellow")
+        exc = parsed.get('exception', {})
+        exc_type = exc.get('type') if exc else "-"
+        status = "Success" if exc_type else "No Exception"
+        patch = analysis.get('patch', 'No patch')
+        table.add_row(parsed['log_type'], exc_type or "-", status, patch[:40])
+        console.print(table)
+
+    # If LLM included commands in output, attempt to parse them (hardened heuristic)
+    commands = []  # Initialize command list
     expl = analysis.get("explanation", "")
     # simple parse: look for lines starting with 'commands:' or '```bash' blocks
     for line in expl.splitlines():
-        if (
-            line.strip().startswith("$ ")
-            or line.strip().startswith("sudo ")
-            or line.strip().startswith("pip ")
-        ):
-            commands.append(line.strip())
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.startswith("$ "):
+            s = s[2:].strip()
+        if s.startswith(("sudo ", "pip ", "crashsense ")):
+            commands.append(s)
     # try to find fenced blocks
     if "```bash" in expl or "```sh" in expl:
         import re
@@ -265,8 +419,13 @@ def analyze(logfile):
         blocks = re.findall(r"```(?:bash|sh)\n(.*?)```", expl, re.S)
         for b in blocks:
             for line in b.splitlines():
-                if line.strip():
-                    commands.append(line.strip())
+                s = line.strip()
+                if not s or s.startswith("#"):
+                    continue
+                if s.startswith("$ "):
+                    s = s[2:].strip()
+                if s:
+                    commands.append(s)
 
     # Deduplicate commands while preserving order
     if commands:
@@ -284,6 +443,7 @@ def analyze(logfile):
     if commands:
         import shlex
         from pathlib import Path as _Path
+
         try:
             import pwd as _pwd
             import grp as _grp
@@ -291,6 +451,15 @@ def analyze(logfile):
             _pwd = None
             _grp = None
 
+        dangerous = {"rm", "mkfs", "dd", "shutdown", "reboot", "init", ":"}
+        allowed_subcommands = {
+            "init",
+            "analyze",
+            "tui",
+            "memory",
+            "create_fake_log_cmd",
+            "create_error_log_cmd",
+        }
         for c in commands:
             try:
                 parts = shlex.split(c)
@@ -304,6 +473,11 @@ def analyze(logfile):
             if not parts:
                 continue
             cmd = parts[0]
+
+            # Skip obviously dangerous commands by default
+            if cmd in dangerous:
+                skipped_info.append((c, f"dangerous command '{cmd}' skipped"))
+                continue
 
             if cmd == "chown":
                 # Form: chown [-R] user[:group] path
@@ -355,7 +529,74 @@ def analyze(logfile):
                 valid_commands.append(c)
                 continue
 
+            # ln -s validation: allow only if src exists and dest parent exists, and path isn't suspicious
+            if cmd == "ln":
+                # Expect a form like: ln -s SRC DST
+                rest = parts[1:]
+                if not rest or "-s" not in rest or len([p for p in rest if not p.startswith("-")]) < 2:
+                    skipped_info.append((c, "unsupported ln form; only 'ln -s SRC DST' allowed"))
+                    continue
+                nonflags = [p for p in rest if not p.startswith("-")]
+                src, dst = nonflags[-2], nonflags[-1]
+                # Skip clearly wrong prefixed paths like './home/...'
+                if dst.startswith("./home/"):
+                    skipped_info.append((c, "suspicious destination path './home/...'") )
+                    continue
+                src_p = _Path(src)
+                dst_p = _Path(dst)
+                if not src_p.exists():
+                    skipped_info.append((c, f"source '{src}' not found"))
+                    continue
+                if not dst_p.parent.exists():
+                    skipped_info.append((c, f"destination parent '{dst_p.parent}' not found"))
+                    continue
+                valid_commands.append(c)
+                continue
+
+            # Skip shell builtins or env exports not reliable without a shell
+            if cmd in {"export", "source"}:
+                skipped_info.append((c, f"'{cmd}' requires a shell/persistent session"))
+                continue
+
+            # Validate crashsense subcommands and basic args
+            if cmd == "crashsense":
+                if len(parts) == 1:
+                    skipped_info.append((c, "missing subcommand"))
+                    continue
+                sub = parts[1]
+                if sub not in allowed_subcommands:
+                    skipped_info.append((c, f"unknown subcommand '{sub}'"))
+                    continue
+                # analyze: allow optional logfile path only; skip unsupported flags
+                if sub == "analyze":
+                    flags = [p for p in parts[2:] if p.startswith("-")]
+                    if flags:
+                        skipped_info.append((c, f"unsupported flags {flags}"))
+                        continue
+                    paths = [p for p in parts[2:] if not p.startswith("-")]
+                    if paths:
+                        target = _Path(paths[0])
+                        if not target.exists():
+                            skipped_info.append((c, f"path '{target}' not found"))
+                            continue
+                valid_commands.append(c)
+                continue
+
             # Default: allow non-sensitive commands
+            # Skip pip installs suggested by LLM by default
+            if cmd == "pip":
+                skipped_info.append((c, "pip operations not auto-run"))
+                continue
+            # Skip placeholder paths like /path/to/*
+            if any("/path/to/" in p for p in parts[1:]):
+                skipped_info.append((c, "placeholder path detected"))
+                continue
+            # Skip if executable is missing
+            from shutil import which as _which
+
+            if _which(cmd) is None:
+                skipped_info.append((c, f"executable '{cmd}' not found"))
+                continue
             valid_commands.append(c)
 
     # store memory
@@ -368,28 +609,29 @@ def analyze(logfile):
         for i, c in enumerate(valid_commands, 1):
             console.print(f"{i}. {c}")
         if Confirm.ask(
-            "Allow CrashSense to run these commands now? (runs sequentially in shell)",
+            "Allow CrashSense to run these commands now? (safe mode, no shell)",
             default=False,
         ):
             for c in valid_commands:
-                console.print(f"[cyan]Running:[/cyan] {c}")
-                try:
-                    cp = subprocess.run(c, shell=True)
-                    if cp.returncode == 0:
-                        console.print(f"[green]Command succeeded: {c}[/green]")
+                console.print(f"[cyan]Running (safe):[/cyan] {c}")
+                code, out, err = run_command_safe(c, timeout=600)
+                if code == 0:
+                    console.print(f"[green]Command succeeded: {c}[/green]")
+                else:
+                    msg = err.strip() or out.strip()
+                    # Improved error message for missing files/paths
+                    if "No such file or directory" in msg:
+                        console.print(f"[red]Command failed (code {code}): {c}\nFile or path not found. Details: {msg[:400]}[/red]")
+                    elif "executable" in msg or "not found" in msg:
+                        console.print(f"[red]Command failed (code {code}): {c}\nExecutable missing or not found. Details: {msg[:400]}[/red]")
                     else:
-                        console.print(
-                            f"[red]Command failed (code {cp.returncode}): {c}[/red]"
-                        )
-                except Exception as e:
-                    console.print(f"[red]Failed to run command {c}: {e}[/red]")
+                        console.print(f"[red]Command failed (code {code}): {c}\n{msg[:400]}[/red]")
         else:
             console.print("[yellow]Skipped running detected commands.[/yellow]")
     else:
         if commands and skipped_info:
-            console.print(
-                "[yellow]All suggested commands were skipped after preflight (e.g., missing users/groups or paths).[/yellow]"
-            )
+            for c, reason in skipped_info:
+                console.print(f"[yellow]Skipped: {c} ({reason})[/yellow]")
         else:
             console.print("[cyan]No automated commands detected in analysis output.[/cyan]")
 
@@ -398,6 +640,7 @@ def analyze(logfile):
 def tui():
     """Launch interactive TUI (keeps previous simple menu)"""
     from .tui import run_tui
+
     run_tui()
 
 
