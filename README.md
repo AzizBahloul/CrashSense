@@ -1,3 +1,18 @@
+# CrashSense
+
+
+## Main Purpose & Potential Use Cases
+
+CrashSense is designed for servers, web infrastructure, and CI/CD pipelines to quickly diagnose and remediate crash logs. It uses AI to parse logs, explain root causes, and suggest actionable fixes—including safe shell commands.
+
+**Potential usages:**
+- Analyzing web server error logs (Apache, Nginx) for configuration or permission issues
+- Diagnosing system-level errors from /var/log, kernel, or service logs
+- Auto-summarizing crash logs for support tickets or incident reports
+- Suggesting safe, preflight-checked shell commands to remediate issues
+- Integrating with CI/CD or monitoring pipelines to automate crash analysis
+- Educating teams on common error patterns and best practices
+
 
 **🚀 [CrashSense on PyPI](https://pypi.org/project/crashsense/) — Click here to install or view latest releases! 🚀**
 
