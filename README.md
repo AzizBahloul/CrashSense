@@ -1,4 +1,15 @@
+
+**🚀 [CrashSense on PyPI](https://pypi.org/project/crashsense/) — Click here to install or view latest releases! 🚀**
+
 # CrashSense
+## Support & Donations
+
+If you find CrashSense useful, consider supporting development:
+
+- **RedotPay UUID:** `1951109247`
+- **Binance UUID:** `1104913076`
+
+Thank you for your support!
 
 AI-powered crash log analyzer with safe command suggestions, memory, and optional RAG from your docs.
 
