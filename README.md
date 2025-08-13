@@ -96,7 +96,7 @@ Choose your preferred provider:
 
 ```bash
 # Auto-detect and analyze latest crash log
-crashsense analyze
+crashsense 
 
 # Analyze specific file
 crashsense analyze /var/log/apache2/error.log
