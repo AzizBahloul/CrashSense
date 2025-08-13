@@ -1,118 +1,235 @@
-# CrashSense
+# 🚀 CrashSense
 
+<div align="center">
 
-## Main Purpose & Potential Use Cases
+**AI-Powered Crash Log Analyzer with Safe Command Suggestions**
 
-CrashSense is designed for servers, web infrastructure, and CI/CD pipelines to quickly diagnose and remediate crash logs. It uses AI to parse logs, explain root causes, and suggest actionable fixes—including safe shell commands.
+[![PyPI](https://img.shields.io/pypi/v/crashsense?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/crashsense/)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue?logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Downloads](https://img.shields.io/pypi/dm/crashsense?color=brightgreen)](https://pypi.org/project/crashsense/)
 
-**Potential usages:**
-- Analyzing web server error logs (Apache, Nginx) for configuration or permission issues
-- Diagnosing system-level errors from /var/log, kernel, or service logs
-- Auto-summarizing crash logs for support tickets or incident reports
-- Suggesting safe, preflight-checked shell commands to remediate issues
-- Integrating with CI/CD or monitoring pipelines to automate crash analysis
-- Educating teams on common error patterns and best practices
+*Quickly diagnose and remediate crash logs with AI-powered analysis*
 
+[**🚀 Install from PyPI**](https://pypi.org/project/crashsense/) • [**📖 Documentation**](#quickstart) • [**💬 Support**](#support--donations)
 
-**🚀 [CrashSense on PyPI](https://pypi.org/project/crashsense/) — Click here to install or view latest releases! 🚀**
+</div>
 
-# CrashSense
-## Support & Donations
+---
 
-If you find CrashSense useful, consider supporting development:
+## ✨ What is CrashSense?
 
-- **RedotPay UUID:** `1951109247`
-- **Binance UUID:** `1104913076`
+CrashSense transforms the tedious process of crash log analysis into an intelligent, automated workflow. Designed for **servers**, **web infrastructure**, and **CI/CD pipelines**, it leverages AI to parse complex logs, explain root causes in plain English, and suggest actionable fixes with safe shell commands.
 
-Thank you for your support!
+### 🎯 Key Use Cases
 
-AI-powered crash log analyzer with safe command suggestions, memory, and optional RAG from your docs.
+| Use Case | Description |
+|----------|-------------|
+| 🌐 **Web Server Analysis** | Diagnose Apache/Nginx configuration and permission issues |
+| 🖥️ **System Diagnostics** | Parse kernel logs, service errors, and `/var/log` entries |
+| 📋 **Incident Reporting** | Auto-generate summaries for support tickets |
+| ⚡ **CI/CD Integration** | Automate crash analysis in deployment pipelines |
+| 🔧 **Safe Remediation** | Get vetted shell commands with preflight safety checks |
+| 🎓 **Team Education** | Learn common error patterns and best practices |
 
-## Highlights
+---
 
-- Auto-detects the latest crash-like log file (Python, Apache, Nginx, system hints)
-- Concise root-cause + actionable patch suggestions
-- Includes recent terminal history to improve context
-- Optional RAG over `kb/` and curated docs in `src/data` (configurable)
-- Safe-mode shell command runner with preflight checks (denylist, path checks)
+## 🌟 Features & Highlights
 
-## Quickstart
+<table>
+<tr>
+<td width="50%">
 
-Install from source (editable):
+### 🔍 **Smart Detection**
+- Auto-detects latest crash logs
+- Supports Python, Apache, Nginx, system logs
+- Contextual analysis with terminal history
+
+### 🛡️ **Safety First**
+- Preflight command validation
+- Built-in denylist protection
+- Path safety verification
+
+</td>
+<td width="50%">
+
+### 🧠 **AI-Powered**
+- Concise root-cause analysis
+- Actionable patch suggestions
+- Optional RAG over documentation
+
+### 🚀 **Easy Integration**
+- Simple CLI interface
+- Interactive TUI mode
+- STDIN pipe support
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
+# Install from PyPI
+pip install crashsense
+
+# Or install from source (development)
 pip install -e .
 ```
 
-Initialize and pick an LLM provider (OpenAI or local Ollama):
+### Initial Setup
 
 ```bash
+# Initialize and configure LLM provider
 crashsense init
 ```
 
-Analyze a log (auto-detect if none provided):
+Choose your preferred provider:
+- **OpenAI GPT** (recommended for accuracy)
+- **Local Ollama** (privacy-focused)
+
+### Basic Usage
 
 ```bash
+# Auto-detect and analyze latest crash log
 crashsense analyze
-```
 
-Pipe from STDIN:
+# Analyze specific file
+crashsense analyze /var/log/apache2/error.log
 
-```bash
-cat error.log | crashsense analyze
-```
+# Pipe from STDIN
+tail -f /var/log/syslog | crashsense analyze
 
-Launch the TUI:
-
-```bash
+# Launch interactive TUI
 crashsense tui
 ```
 
+---
 
-## Workflow
+## 📸 Screenshots & Workflow
 
-### Startup & Device Detection
-Shows CrashSense starting up and detecting the compute device.
+### 🔄 Startup & Device Detection
+*CrashSense initializing and detecting compute resources*
 
 ![Startup & Device Detection](image1.png)
 
-### Crash Log Analysis & Explanation
-Displays the analysis of a detected crash log, including parsed info and actionable remediation.
+### 🔍 Crash Log Analysis & Explanation
+*AI-powered analysis showing parsed information and remediation steps*
 
 ![Crash Log Analysis & Explanation](image2.png)
 
-### Summary Table & Command Suggestions
-Summarizes the log analysis and presents any safe shell command suggestions.
+### 📊 Summary Table & Command Suggestions
+*Actionable summary with safe shell command recommendations*
 
 ![Summary Table & Command Suggestions](image3.png)
 
-## RAG docs (optional)
+---
 
-- Defaults index `kb/` and curated files in `src/data`:
-   - `crashsense_best_practices.md`
-   - `python_exceptions_playbook.md`
-   - `web_server_error_patterns.md`
-   - `linux_permission_paths.md`
-- Manage docs at runtime:
+## 📚 RAG Documentation (Optional)
+
+CrashSense can leverage your existing documentation for more contextual analysis:
+
+### 📁 **Default Knowledge Base**
+```
+kb/                              # Your custom docs
+src/data/
+├── crashsense_best_practices.md
+├── python_exceptions_playbook.md
+├── web_server_error_patterns.md
+└── linux_permission_paths.md
+```
+
+### 🛠️ **Manage Documentation**
 
 ```bash
-crashsense rag add /path/to/extra/doc_or_folder
+# Add custom documentation
+crashsense rag add /path/to/docs/
+
+# Clear knowledge base
 crashsense rag clear
+
+# Rebuild with dry-run preview
 crashsense rag build --dry-run
 ```
 
-## Config & Security
+---
 
-- Config: `~/.crashsense/config.toml`
-- OpenAI key: `CRASHSENSE_OPENAI_KEY`
-- Command execution requires confirmation and passes safety checks
+## ⚙️ Configuration & Security
 
-## Troubleshooting (Ollama)
+### 📝 Configuration File
+```toml
+# ~/.crashsense/config.toml
+[llm]
+provider = "openai"  # or "ollama"
+model = "gpt-4"
 
-If automatic pull fails:
-
-```bash
-ollama pull llama3.2:1b
+[security]
+safe_mode = true
+confirm_commands = true
 ```
 
-Check daemon and network; see docs: https://ollama.com/docs
+### 🔐 Environment Variables
+```bash
+export CRASHSENSE_OPENAI_KEY="your-api-key-here"
+```
+
+### 🛡️ Security Features
+- ✅ Command execution requires explicit confirmation
+- ✅ Built-in safety checks and validation
+- ✅ Configurable security policies
+- ✅ Audit trail for executed commands
+
+---
+
+## 🔧 Troubleshooting
+
+### Ollama Setup Issues
+```bash
+# Manual model pull
+ollama pull llama3.2:1b
+
+# Check daemon status
+ollama serve
+
+# Verify installation
+ollama list
+```
+
+For more help, visit the [Ollama Documentation](https://ollama.com/docs)
+
+---
+
+## 💝 Support & Donations
+
+If CrashSense has helped streamline your debugging workflow, consider supporting continued development:
+
+<div align="center">
+
+| Platform | ID |
+|----------|-----|
+| 💳 **RedotPay** | `1951109247` |
+| 🟡 **Binance** | `1104913076` |
+
+*Your support helps keep CrashSense free and continuously improving!*
+
+</div>
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+
+**Made with ❤️ for developers who value their time**
+
+⭐ **Star this repo** if CrashSense helped you debug faster!
+
+</div>
