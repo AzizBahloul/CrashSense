@@ -1,74 +1,84 @@
 # CrashSense
 
-AI-powered crash log analyzer with memory and automated setup for local/API LLMs.
+AI-powered crash log analyzer with safe command suggestions, memory, and optional RAG from your docs.
 
-## Features
+## Highlights
 
-- Automatically detects the most recent log file for analysis.
-- Includes the last terminal session history in the analysis.
+- Auto-detects the latest crash-like log file (Python, Apache, Nginx, system hints)
+- Concise root-cause + actionable patch suggestions
+- Includes recent terminal history to improve context
+- Optional RAG over `kb/` and curated docs in `src/data` (configurable)
+- Safe-mode shell command runner with preflight checks (denylist, path checks)
 
-## Install (editable)
+## Quickstart
+
+Install from source (editable):
 
 ```bash
 pip install -e .
 ```
 
-Or build a wheel:
-
-```bash
-python -m build
-```
-
-## Usage
-
-- First run interactive setup:
+Initialize and pick an LLM provider (OpenAI or local Ollama):
 
 ```bash
 crashsense init
 ```
 
-- Analyze a log (automatically detects the last log file if none provided):
+Analyze a log (auto-detect if none provided):
 
 ```bash
 crashsense analyze
 ```
 
- 
-
-- Include terminal history in the analysis for better context.
-
-- Or pipe logs from STDIN:
+Pipe from STDIN:
 
 ```bash
-cat crash.log | crashsense analyze
+cat error.log | crashsense analyze
 ```
 
-- Launch TUI:
+Launch the TUI:
 
 ```bash
 crashsense tui
 ```
 
+## Screenshots
+
+Below are example terminal screenshots; replace with your own as needed.
+
+![Analyze output 1](image1.png)
+
+![Analyze output 2](image2.png)
+
+![Analyze output 3](image3.png)
+
+## RAG docs (optional)
+
+- Defaults index `kb/` and curated files in `src/data`:
+   - `crashsense_best_practices.md`
+   - `python_exceptions_playbook.md`
+   - `web_server_error_patterns.md`
+   - `linux_permission_paths.md`
+- Manage docs at runtime:
+
+```bash
+crashsense rag add /path/to/extra/doc_or_folder
+crashsense rag clear
+crashsense rag build --dry-run
+```
+
 ## Config & Security
 
-- Config lives at `~/.crashsense/config.toml`.
-- OpenAI key is read from env var `CRASHSENSE_OPENAI_KEY`.
-- The tool asks before running any shell command.
+- Config: `~/.crashsense/config.toml`
+- OpenAI key: `CRASHSENSE_OPENAI_KEY`
+- Command execution requires confirmation and passes safety checks
 
-## Troubleshooting Ollama Model Downloads
+## Troubleshooting (Ollama)
 
-If the automated model download fails, you can manually download the model:
+If automatic pull fails:
 
-1. Ensure the `ollama` CLI is installed and up-to-date:
-   ```bash
-   curl -fsSL https://ollama.com/install.sh | sh
-   ```
+```bash
+ollama pull llama3.2:1b
+```
 
-2. Manually pull the model:
-   ```bash
-   ollama pull llama3.1:8b
-   ```
-
-3. If the above fails, check your network connection and ensure access to `https://registry.ollama.ai`.
-
-4. For further assistance, refer to the [Ollama documentation](https://ollama.com/docs).
+Check daemon and network; see docs: https://ollama.com/docs

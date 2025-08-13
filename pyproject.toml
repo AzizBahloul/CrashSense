@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crashsense"
-version = "1.0.0"
+version = "1.0.1"
 description = "AI-powered crash log analyzer with memory and automated setup for local/API LLMs"
 authors = [{name="Mohamed Aziz Bahloul", email="azizbahloul3@gmail.com"}]
 license = {text = "MIT"}
