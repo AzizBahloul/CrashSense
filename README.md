@@ -228,8 +228,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
 
-**Made with ❤️ for developers who value their time**
-
-⭐ **Star this repo** if CrashSense helped you debug faster!
+⭐ **Star this repo** yar7am book!
 
 </div>
