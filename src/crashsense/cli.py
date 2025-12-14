@@ -173,6 +173,288 @@ def _chunk_text_cli(text: str, size: int, overlap: int):
     return chunks
 
 
+@main.group()
+def k8s():
+    """Kubernetes cluster monitoring and self-healing commands."""
+    pass
+
+
+@k8s.command("status")
+@click.option("--kubeconfig", type=click.Path(exists=True), help="Path to kubeconfig file")
+@click.option("--namespace", "-n", multiple=True, help="Namespaces to check (can be repeated)")
+def k8s_status(kubeconfig, namespace):
+    """Check Kubernetes cluster health status."""
+    from .core.k8s_monitor import KubernetesMonitor
+    from rich.table import Table
+    
+    cfg = load_config()
+    k8s_cfg = cfg.get("kubernetes", {})
+    
+    kubeconfig = kubeconfig or k8s_cfg.get("kubeconfig")
+    namespaces = list(namespace) if namespace else k8s_cfg.get("namespaces", [])
+    
+    try:
+        monitor = KubernetesMonitor(kubeconfig_path=kubeconfig, namespaces=namespaces)
+        
+        # Get cluster info
+        cluster_info = monitor.get_cluster_info()
+        console.print(Panel.fit(
+            f"[bold]Kubernetes Cluster[/bold]\n"
+            f"Version: {cluster_info.get('version', 'N/A')}\n"
+            f"Nodes: {cluster_info.get('node_count', 0)}",
+            title="Cluster Info",
+            border_style="cyan"
+        ))
+        
+        # Show nodes
+        if cluster_info.get('nodes'):
+            table = Table(title="Nodes")
+            table.add_column("Name", style="cyan")
+            table.add_column("Status", style="green")
+            table.add_column("CPU", style="yellow")
+            table.add_column("Memory", style="yellow")
+            
+            for node in cluster_info['nodes']:
+                table.add_row(
+                    node['name'],
+                    node['status'],
+                    node['cpu_capacity'],
+                    node['memory_capacity']
+                )
+            console.print(table)
+        
+        # Health check
+        health = monitor.health_check()
+        
+        status_color = "green" if health['healthy'] else "red"
+        status_text = "✓ Healthy" if health['healthy'] else "✗ Issues Detected"
+        
+        console.print(Panel.fit(
+            f"[bold {status_color}]{status_text}[/bold {status_color}]\n\n"
+            f"Pod Crashes: {health['summary'].get('pod_crashes', 0)}\n"
+            f"Resource Exhaustion: {health['summary'].get('resource_exhaustion', 0)}\n"
+            f"Network Issues: {health['summary'].get('network_issues', 0)}",
+            title="Health Status",
+            border_style=status_color
+        ))
+        
+        if health.get('issues'):
+            console.print("\n[bold red]Issues:[/bold red]")
+            for issue in health['issues'][:10]:
+                console.print(f"  • {issue}")
+                
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise click.Abort()
+
+
+@k8s.command("monitor")
+@click.option("--kubeconfig", type=click.Path(exists=True), help="Path to kubeconfig file")
+@click.option("--namespace", "-n", multiple=True, help="Namespaces to monitor")
+@click.option("--interval", "-i", default=60, help="Monitoring interval in seconds")
+@click.option("--auto-heal", is_flag=True, help="Automatically remediate detected issues")
+def k8s_monitor(kubeconfig, namespace, interval, auto_heal):
+    """Continuously monitor Kubernetes cluster for issues."""
+    from .core.k8s_monitor import KubernetesMonitor
+    from .core.remediation import RemediationEngine
+    import time
+    
+    cfg = load_config()
+    k8s_cfg = cfg.get("kubernetes", {})
+    
+    kubeconfig = kubeconfig or k8s_cfg.get("kubeconfig")
+    namespaces = list(namespace) if namespace else k8s_cfg.get("namespaces", [])
+    interval = interval or k8s_cfg.get("monitor_interval_seconds", 60)
+    
+    if auto_heal and not Confirm.ask(
+        "[yellow]Auto-heal mode will automatically apply remediations. Continue?[/yellow]",
+        default=False
+    ):
+        console.print("[yellow]Monitoring without auto-heal.[/yellow]")
+        auto_heal = False
+    
+    try:
+        monitor = KubernetesMonitor(kubeconfig_path=kubeconfig, namespaces=namespaces)
+        remediation_engine = None
+        
+        if auto_heal:
+            remediation_engine = RemediationEngine(
+                monitor,
+                dry_run=k8s_cfg.get("dry_run", True)
+            )
+        
+        console.print(f"[bold cyan]🔍 Monitoring cluster every {interval}s[/bold cyan]")
+        console.print(f"   Auto-heal: {'[green]Enabled[/green]' if auto_heal else '[yellow]Disabled[/yellow]'}")
+        console.print(f"   Namespaces: {', '.join(namespaces) if namespaces else 'All'}\n")
+        
+        iteration = 0
+        while True:
+            iteration += 1
+            console.print(f"\n[dim]--- Iteration {iteration} at {time.strftime('%H:%M:%S')} ---[/dim]")
+            
+            # Detect issues
+            crashes = monitor.detect_pod_crashes()
+            exhaustion = monitor.detect_resource_exhaustion()
+            network = monitor.detect_network_failures()
+            
+            all_issues = crashes + exhaustion + network
+            
+            if all_issues:
+                console.print(f"[yellow]⚠ Found {len(all_issues)} issues[/yellow]")
+                
+                for issue in all_issues[:5]:
+                    console.print(f"  • {issue.get('name') or issue.get('pod')}: {', '.join(issue.get('issues', [issue.get('type', 'unknown')]))}")
+                
+                if auto_heal and remediation_engine:
+                    console.print(f"\n[bold]🏥 Applying auto-heal...[/bold]")
+                    results = remediation_engine.auto_heal(
+                        all_issues,
+                        max_actions=k8s_cfg.get("max_remediation_actions", 10)
+                    )
+                    
+                    successful = sum(1 for r in results if r.get("success"))
+                    console.print(f"[green]✓ {successful}/{len(results)} remediations successful[/green]")
+            else:
+                console.print("[green]✓ No issues detected[/green]")
+            
+            # Wait for next iteration
+            console.print(f"[dim]Sleeping for {interval}s...[/dim]")
+            time.sleep(interval)
+            
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Monitoring stopped by user[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise click.Abort()
+
+
+@k8s.command("heal")
+@click.option("--kubeconfig", type=click.Path(exists=True), help="Path to kubeconfig file")
+@click.option("--namespace", "-n", multiple=True, help="Namespaces to check")
+@click.option("--dry-run", is_flag=True, help="Simulate remediation without applying changes")
+def k8s_heal(kubeconfig, namespace, dry_run):
+    """Detect and remediate Kubernetes issues (one-time scan)."""
+    from .core.k8s_monitor import KubernetesMonitor
+    from .core.remediation import RemediationEngine
+    from rich.table import Table
+    
+    cfg = load_config()
+    k8s_cfg = cfg.get("kubernetes", {})
+    
+    kubeconfig = kubeconfig or k8s_cfg.get("kubeconfig")
+    namespaces = list(namespace) if namespace else k8s_cfg.get("namespaces", [])
+    
+    try:
+        monitor = KubernetesMonitor(kubeconfig_path=kubeconfig, namespaces=namespaces)
+        
+        console.print("[bold]🔍 Scanning for issues...[/bold]")
+        
+        crashes = monitor.detect_pod_crashes()
+        exhaustion = monitor.detect_resource_exhaustion()
+        network = monitor.detect_network_failures()
+        
+        all_issues = crashes + exhaustion + network
+        
+        if not all_issues:
+            console.print("[green]✓ No issues found - cluster is healthy![/green]")
+            return
+        
+        console.print(f"\n[yellow]Found {len(all_issues)} issues:[/yellow]\n")
+        
+        # Display issues
+        table = Table(title="Detected Issues")
+        table.add_column("Pod/Service", style="cyan")
+        table.add_column("Namespace", style="magenta")
+        table.add_column("Issue Type", style="yellow")
+        table.add_column("Details", style="white")
+        
+        for issue in all_issues:
+            table.add_row(
+                issue.get("name") or issue.get("pod") or issue.get("service", "N/A"),
+                issue.get("namespace", "N/A"),
+                issue.get("type", "Unknown"),
+                ", ".join(issue.get("issues", [])[:2])
+            )
+        
+        console.print(table)
+        
+        # Ask for remediation
+        if not Confirm.ask(
+            f"\n[bold]Apply remediation for {len(all_issues)} issues?[/bold]",
+            default=False
+        ):
+            console.print("[yellow]Remediation cancelled.[/yellow]")
+            return
+        
+        remediation_engine = RemediationEngine(monitor, dry_run=dry_run)
+        
+        console.print(f"\n[bold cyan]🏥 Starting remediation...[/bold cyan]")
+        results = remediation_engine.auto_heal(
+            all_issues,
+            max_actions=k8s_cfg.get("max_remediation_actions", 10)
+        )
+        
+        # Summary
+        successful = sum(1 for r in results if r.get("success"))
+        console.print(f"\n[bold]Remediation Summary:[/bold]")
+        console.print(f"  Total issues: {len(all_issues)}")
+        console.print(f"  Remediated: {len(results)}")
+        console.print(f"  Successful: [green]{successful}[/green]")
+        console.print(f"  Failed: [red]{len(results) - successful}[/red]")
+        
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise click.Abort()
+
+
+@k8s.command("logs")
+@click.argument("pod")
+@click.option("--namespace", "-n", default="default", help="Kubernetes namespace")
+@click.option("--container", "-c", help="Container name (if pod has multiple containers)")
+@click.option("--tail", "-t", default=100, help="Number of lines to show")
+@click.option("--previous", "-p", is_flag=True, help="Show logs from previous terminated container")
+@click.option("--analyze", is_flag=True, help="Analyze logs with AI")
+def k8s_logs(pod, namespace, container, tail, previous, analyze):
+    """Get logs from a Kubernetes pod."""
+    from .core.k8s_monitor import KubernetesMonitor
+    
+    cfg = load_config()
+    k8s_cfg = cfg.get("kubernetes", {})
+    
+    try:
+        monitor = KubernetesMonitor(kubeconfig_path=k8s_cfg.get("kubeconfig"))
+        
+        console.print(f"[cyan]Fetching logs for pod {pod} in namespace {namespace}...[/cyan]")
+        logs = monitor.get_pod_logs(pod, namespace, container=container, tail_lines=tail, previous=previous)
+        
+        if logs.startswith("Error"):
+            console.print(f"[red]{logs}[/red]")
+            return
+        
+        console.print(Panel(logs, title=f"Logs: {pod}", border_style="cyan"))
+        
+        if analyze:
+            console.print("\n[bold]🧠 Analyzing logs with AI...[/bold]")
+            
+            provider = cfg.get("provider", "auto")
+            local_model = cfg.get("local", {}).get("model")
+            engine = BackTrackEngine(provider=provider, local_model=local_model)
+            
+            result = engine.analyze(logs)
+            analysis = result["analysis"]
+            
+            console.print(Panel.fit(
+                f"[bold]Analysis:[/bold]\n{analysis.get('explanation', 'No analysis available')}\n\n"
+                f"[bold]Suggested Fix:[/bold]\n{analysis.get('patch', 'No fix suggested')}",
+                title="AI Analysis",
+                border_style="green"
+            ))
+            
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise click.Abort()
+
+
 @main.command()
 def init():
     """Interactive initial setup (LLM provider, local model download, API test)"""

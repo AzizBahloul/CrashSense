@@ -1,15 +1,15 @@
-# 🚀 CrashSense
+# 🚀 CrashSense - Self-Healing Kubernetes Platform
 
 <div align="center">
 
-**AI-Powered Crash Log Analyzer with Safe Command Suggestions**
+**AI-Powered Kubernetes Monitoring with Automated Crash Detection & Remediation**
 
 [![PyPI](https://img.shields.io/pypi/v/crashsense?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/crashsense/)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue?logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Downloads](https://img.shields.io/pypi/dm/crashsense?color=brightgreen)](https://pypi.org/project/crashsense/)
+[![Kubernetes](https://img.shields.io/badge/kubernetes-1.28%2B-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io)
 
-*Quickly diagnose and remediate crash logs with AI-powered analysis*
+*Automatically detect and remediate Kubernetes pod crashes, resource exhaustion, and network failures*
 
 [**🚀 Install from PyPI**](https://pypi.org/project/crashsense/) • [**📖 Documentation**](#quickstart) • [**💬 Support**](#support--donations)
 
@@ -19,18 +19,18 @@
 
 ## ✨ What is CrashSense?
 
-CrashSense transforms the tedious process of crash log analysis into an intelligent, automated workflow. Designed for **servers**, **web infrastructure**, and **CI/CD pipelines**, it leverages AI to parse complex logs, explain root causes in plain English, and suggest actionable fixes with safe shell commands.
+CrashSense is a comprehensive **self-healing Kubernetes platform** that combines AI-powered log analysis with automated remediation for containerized workloads. Originally designed for crash log analysis, it now provides enterprise-grade Kubernetes cluster monitoring, intelligent issue detection, and autonomous healing capabilities.
 
 ### 🎯 Key Use Cases
 
 | Use Case | Description |
 |----------|-------------|
-| 🌐 **Web Server Analysis** | Diagnose Apache/Nginx configuration and permission issues |
-| 🖥️ **System Diagnostics** | Parse kernel logs, service errors, and `/var/log` entries |
-| 📋 **Incident Reporting** | Auto-generate summaries for support tickets |
-| ⚡ **CI/CD Integration** | Automate crash analysis in deployment pipelines |
-| 🔧 **Safe Remediation** | Get vetted shell commands with preflight safety checks |
-| 🎓 **Team Education** | Learn common error patterns and best practices |
+| 🔄 **Self-Healing K8s** | Automatically detect and fix pod crashes, OOMKilled containers, and CrashLoopBackOff |
+| 📊 **Resource Management** | Monitor and remediate resource exhaustion (CPU/memory limits) |
+| 🌐 **Network Reliability** | Detect service endpoint failures and network issues |
+| 📈 **Prometheus Integration** | Collect metrics and integrate with Alertmanager for comprehensive monitoring |
+| 🧠 **AI-Powered Analysis** | Leverage LLMs to analyze crash logs and suggest intelligent fixes |
+| 🖥️ **Traditional Monitoring** | Support for web servers, system logs, and CI/CD pipelines |
 
 ---
 
@@ -40,28 +40,36 @@ CrashSense transforms the tedious process of crash log analysis into an intellig
 <tr>
 <td width="50%">
 
-### 🔍 **Smart Detection**
-- Auto-detects latest crash logs
-- Supports Python, Apache, Nginx, system logs
-- Contextual analysis with terminal history
+### 🔍 **Kubernetes Monitoring**
+- Pod crash detection (CrashLoopBackOff, OOMKilled)
+- Resource exhaustion monitoring
+- Network failure detection
+- Real-time cluster health checks
+- Multi-namespace support
 
-### 🛡️ **Safety First**
-- Preflight command validation
-- Built-in denylist protection
-- Path safety verification
+### 🏥 **Self-Healing**
+- Automated pod restart/deletion
+- Memory limit auto-scaling
+- Service endpoint remediation
+- Deployment rollout management
+- Configurable dry-run mode
 
 </td>
 <td width="50%">
 
-### 🧠 **AI-Powered**
-- Concise root-cause analysis
-- Actionable patch suggestions
-- Optional RAG over documentation
+### 📊 **Observability**
+- Prometheus metrics exposure
+- Alertmanager integration
+- Custom metric collection
+- Webhook receivers for alerts
+- Historical trend analysis
 
-### 🚀 **Easy Integration**
-- Simple CLI interface
-- Interactive TUI mode
-- STDIN pipe support
+### 🧠 **AI-Powered**
+- GPT/Ollama integration for log analysis
+- Root cause identification
+- Intelligent remediation suggestions
+- RAG over documentation
+- Context-aware fixes
 
 </td>
 </tr>
@@ -74,10 +82,12 @@ CrashSense transforms the tedious process of crash log analysis into an intellig
 ### Installation
 
 ```bash
-# Install from PyPI
+# Install from PyPI with Kubernetes support
 pip install crashsense
 
 # Or install from source (development)
+git clone https://github.com/AzizBahloul/CrashSense.git
+cd CrashSense
 pip install -e .
 ```
 
@@ -90,13 +100,348 @@ crashsense init
 
 Choose your preferred provider:
 - **OpenAI GPT** (recommended for accuracy)
-- **Local Ollama** (privacy-focused)
+- **Local Ollama** (privacy-focused, no API costs)
 
-### Basic Usage
+### Kubernetes Setup
+
+Enable Kubernetes monitoring in `~/.crashsense/config.toml`:
+
+```toml
+[kubernetes]
+enabled = true
+kubeconfig = null  # Uses default ~/.kube/config
+namespaces = []  # Monitor all namespaces, or specify: ["production", "staging"]
+auto_heal = true
+dry_run = false  # Set to true for safe testing
+max_remediation_actions = 10
+
+[prometheus]
+enabled = true
+url = "http://localhost:9090"
+alertmanager_url = "http://localhost:9093"
+metrics_port = 8000
+```
+
+---
+
+## 💻 Usage Examples
+
+### Kubernetes Monitoring
+
+#### Check Cluster Health
+```bash
+# View cluster status and health metrics
+crashsense k8s status
+
+# Check specific namespaces
+crashsense k8s status -n production -n staging
+```
+
+#### One-Time Scan and Heal
+```bash
+# Detect and fix issues (with confirmation)
+crashsense k8s heal
+
+# Dry-run mode (simulate without applying changes)
+crashsense k8s heal --dry-run
+```
+
+#### Continuous Monitoring
+```bash
+# Monitor cluster every 60 seconds
+crashsense k8s monitor
+
+# Enable auto-heal mode
+crashsense k8s monitor --auto-heal
+
+# Custom interval
+crashsense k8s monitor --interval 30 --auto-heal
+```
+
+#### Pod Log Analysis
+```bash
+# Get pod logs
+crashsense k8s logs my-pod -n production
+
+# Analyze logs with AI
+crashsense k8s logs my-pod --analyze
+
+# Previous container logs (for crashed pods)
+crashsense k8s logs my-pod --previous --analyze
+```
+
+### Traditional Log Analysis
 
 ```bash
 # Auto-detect and analyze latest crash log
-crashsense 
+crashsense
+
+# Analyze specific log file
+crashsense analyze /var/log/myapp/error.log
+
+# Interactive TUI mode
+crashsense tui
+```
+
+---
+
+## 🔧 Kubernetes Remediation Capabilities
+
+CrashSense automatically handles common Kubernetes issues:
+
+### Pod Crash Issues
+- **CrashLoopBackOff**: Analyzes logs, deletes pods with high restart counts
+- **ImagePullBackOff**: Checks image pull secrets and registry configuration
+- **OOMKilled**: Increases memory limits automatically (50% increase)
+- **CreateContainerError**: Identifies configuration issues
+
+### Resource Exhaustion
+- **High Memory**: Auto-scales memory limits and enables HPA
+- **High CPU**: Scales deployment replicas
+- **Quota Exceeded**: Recommends quota adjustments
+
+### Network Issues
+- **No Service Endpoints**: Verifies pod selectors and labels
+- **Service Unavailable**: Checks pod readiness and restarts if needed
+
+### Configuration Issues
+- **Pending Pods**: Analyzes scheduling constraints and node resources
+- **Failed Mounts**: Identifies PVC and volume issues
+
+---
+
+## 📊 Prometheus & Alertmanager Integration
+
+### Expose Metrics
+
+CrashSense exposes Prometheus metrics:
+
+```bash
+# Metrics available at http://localhost:8000/metrics
+```
+
+**Available Metrics:**
+- `crashsense_pod_crashes_total` - Total pod crashes detected
+- `crashsense_remediations_total` - Total remediation actions taken
+- `crashsense_pod_health` - Pod health status (0/1)
+- `crashsense_cluster_health_score` - Overall cluster health (0-100)
+- `crashsense_remediation_duration_seconds` - Remediation action duration
+
+### Alertmanager Webhook
+
+Configure Alertmanager to trigger CrashSense remediation:
+
+```yaml
+receivers:
+  - name: crashsense
+    webhook_configs:
+      - url: 'http://crashsense:9094/webhook'
+        send_resolved: true
+```
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│           CrashSense Platform                    │
+├─────────────────────────────────────────────────┤
+│                                                  │
+│  ┌──────────────┐      ┌──────────────┐        │
+│  │ K8s Monitor  │◄────►│  Prometheus  │        │
+│  │              │      │  Collector   │        │
+│  └──────┬───────┘      └──────────────┘        │
+│         │                                        │
+│         ▼                                        │
+│  ┌──────────────┐      ┌──────────────┐        │
+│  │   Analyzer   │◄────►│  LLM Adapter │        │
+│  │  (AI-Powered)│      │ (GPT/Ollama) │        │
+│  └──────┬───────┘      └──────────────┘        │
+│         │                                        │
+│         ▼                                        │
+│  ┌──────────────┐      ┌──────────────┐        │
+│  │ Remediation  │◄────►│   Memory     │        │
+│  │   Engine     │      │    Store     │        │
+│  └──────────────┘      └──────────────┘        │
+│                                                  │
+├─────────────────────────────────────────────────┤
+│         CLI / TUI / API Interface                │
+└─────────────────────────────────────────────────┘
+         ▲                       ▲
+         │                       │
+    Kubernetes API         Alertmanager
+```
+
+---
+
+## 🛡️ Safety Features
+
+CrashSense implements multiple safety layers:
+
+1. **Dry-Run Mode**: Test remediation without applying changes
+2. **Action Limits**: Maximum actions per cycle (default: 10)
+3. **Confirmation Prompts**: Interactive mode requires user approval
+4. **Audit Trail**: All actions logged with timestamps and results
+5. **Rollback Support**: Failed actions can be reverted
+6. **RBAC Integration**: Respects Kubernetes permissions
+
+---
+
+## 📋 Requirements
+
+### System Requirements
+- Python 3.8+
+- Kubernetes cluster (1.28+) with kubectl access
+- Optional: Prometheus & Alertmanager for metrics
+
+### Kubernetes Permissions
+CrashSense requires these RBAC permissions:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crashsense
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "endpoints"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+```
+
+---
+
+## 🎓 Advanced Usage
+
+### Custom Remediation Policies
+
+Create custom remediation logic:
+
+```python
+from crashsense.core.k8s_monitor import KubernetesMonitor
+from crashsense.core.remediation import RemediationEngine
+
+# Initialize
+monitor = KubernetesMonitor()
+engine = RemediationEngine(monitor, dry_run=False)
+
+# Detect issues
+crashes = monitor.detect_pod_crashes()
+
+# Apply remediation
+for crash in crashes:
+    result = engine.remediate_issue(crash)
+    print(f"Remediation: {result}")
+```
+
+### RAG Document Management
+
+Add Kubernetes documentation for better analysis:
+
+```bash
+# Add custom documentation
+crashsense rag add /path/to/k8s-docs
+
+# Build RAG index
+crashsense rag build
+
+# Clear and rebuild
+crashsense rag clear
+crashsense rag add ./kubernetes-playbooks
+```
+
+### Memory Management
+
+View and manage crash analysis history:
+
+```bash
+# List recent crash analyses
+crashsense memory
+
+# Stored in SQLite: ~/.crashsense/memories.db
+```
+
+---
+
+## 🔌 Integration Examples
+
+### CI/CD Pipeline
+
+```yaml
+# GitLab CI example
+k8s-health-check:
+  stage: post-deploy
+  script:
+    - pip install crashsense
+    - crashsense k8s status || exit 1
+    - crashsense k8s heal --dry-run
+```
+
+### Monitoring Dashboard
+
+```python
+# Flask webhook receiver
+from flask import Flask, request
+from crashsense.core.remediation import RemediationEngine
+
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def alertmanager_webhook():
+    alert = request.json
+    # Trigger remediation based on alert
+    engine.remediate_issue(alert)
+    return {'status': 'ok'}
+```
+
+---
+
+## 📚 Documentation
+
+- [Kubernetes Remediation Playbook](src/data/kubernetes_remediation_playbook.md)
+- [Python Exceptions Guide](src/data/python_exceptions_playbook.md)
+- [Web Server Patterns](src/data/web_server_error_patterns.md)
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+---
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## 🙏 Acknowledgments
+
+Built with:
+- [Kubernetes Python Client](https://github.com/kubernetes-client/python)
+- [Prometheus Client](https://github.com/prometheus/client_python)
+- [Rich](https://github.com/Textualize/rich) for beautiful terminal output
+- OpenAI GPT & Ollama for AI-powered analysis
+
+---
+
+<div align="center">
+
+**Made with ❤️ by Mohamed Aziz Bahloul**
+
+⭐ Star this repo if you find it useful!
+
+</div> 
 
 # Analyze specific file
 crashsense analyze /var/log/apache2/error.log

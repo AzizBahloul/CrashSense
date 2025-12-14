@@ -29,6 +29,13 @@ class BackTrackEngine:
         return {"language": language, "exception": exception, "frames": frames}
 
     def detect_language(self, text: str) -> str:
+        # Kubernetes
+        if "CrashLoopBackOff" in text or "ImagePullBackOff" in text or "OOMKilled" in text:
+            return "kubernetes"
+        if "kubectl" in text or "kube-apiserver" in text or "kubelet" in text:
+            return "kubernetes"
+        if '"kind":"Pod"' in text or '"kind":"Deployment"' in text:
+            return "kubernetes"
         # Python
         if "Traceback (most recent call last)" in text:
             return "python"
@@ -46,6 +53,20 @@ class BackTrackEngine:
         return "unknown"
 
     def detect_exception(self, text: str):
+        # Kubernetes-specific errors
+        k8s_patterns = [
+            r"(CrashLoopBackOff|ImagePullBackOff|ErrImagePull|OOMKilled|Evicted|CreateContainerError|InvalidImageName)",
+            r"(PodInitializing|ContainerCreating|Pending|Failed|Unknown)",
+            r"failed to pull image \"([^\"]+)\"",
+            r"back-off \d+ restarting failed container",
+        ]
+        
+        for pattern in k8s_patterns:
+            m = re.search(pattern, text, re.IGNORECASE)
+            if m:
+                return {"type": m.group(1) if m.lastindex >= 1 else "KubernetesError", "message": m.group(0) or ""}
+        
+        # Python exceptions
         m = re.search(
             r"([A-Za-z_][A-Za-z0-9_.]+(?:Exception|Error))(?::\s*(.*))?", text
         )
@@ -55,6 +76,8 @@ class BackTrackEngine:
 
     def extract_frames(self, text: str):
         frames = []
+        
+        # Python stack traces
         for m in re.finditer(
             r'  File "([^"]+)", line (\d+), in ([^\n]+)\n\s+(.*)', text
         ):
@@ -66,6 +89,18 @@ class BackTrackEngine:
                     "code": m.group(4),
                 }
             )
+        
+        # Kubernetes events
+        k8s_event_pattern = r"(?:Event|Warning|Error).*?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}).*?(Pod|Container|Node|Service).*?([A-Za-z]+)\s+(.*?)(?:\n|$)"
+        for m in re.finditer(k8s_event_pattern, text):
+            frames.append({
+                "timestamp": m.group(1),
+                "resource_type": m.group(2),
+                "reason": m.group(3),
+                "message": m.group(4),
+                "type": "kubernetes_event"
+            })
+        
         return frames
 
     def analyze(self, text: str) -> Dict:

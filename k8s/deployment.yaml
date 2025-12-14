@@ -1,0 +1,82 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashsense
+  namespace: crashsense
+  labels:
+    app: crashsense
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crashsense
+  template:
+    metadata:
+      labels:
+        app: crashsense
+    spec:
+      serviceAccountName: crashsense
+      containers:
+        - name: crashsense
+          image: crashsense:2.0.0  # Build your own image or use from registry
+          imagePullPolicy: Always
+          command:
+            - python
+            - -m
+            - crashsense.cli
+            - k8s
+            - monitor
+            - --auto-heal
+          env:
+            - name: CRASHSENSE_PROVIDER
+              value: "openai"
+            - name: CRASHSENSE_OPENAI_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: crashsense-secrets
+                  key: openai-api-key
+                  optional: true
+          ports:
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+            - name: webhook
+              containerPort: 9094
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /root/.crashsense
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: crashsense-config
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: crashsense-secrets
+  namespace: crashsense
+type: Opaque
+stringData:
+  openai-api-key: "YOUR_OPENAI_API_KEY_HERE"

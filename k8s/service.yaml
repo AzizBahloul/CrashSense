@@ -1,0 +1,25 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crashsense
+  namespace: crashsense
+  labels:
+    app: crashsense
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 8000
+      targetPort: metrics
+      protocol: TCP
+    - name: webhook
+      port: 9094
+      targetPort: webhook
+      protocol: TCP
+  selector:
+    app: crashsense

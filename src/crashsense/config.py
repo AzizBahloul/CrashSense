@@ -19,10 +19,29 @@ DEFAULT_CONFIG = {
             str(Path.cwd() / "src" / "data" / "python_exceptions_playbook.md"),
             str(Path.cwd() / "src" / "data" / "web_server_error_patterns.md"),
             str(Path.cwd() / "src" / "data" / "linux_permission_paths.md"),
+            str(Path.cwd() / "src" / "data" / "kubernetes_remediation_playbook.md"),
         ],
         "chunk_chars": 800,
         "chunk_overlap": 120,
         "top_k": 3,
+    },
+    "kubernetes": {
+        "enabled": False,
+        "kubeconfig": None,  # None for default ~/.kube/config
+        "namespaces": [],  # Empty list means all namespaces
+        "auto_heal": False,
+        "dry_run": True,
+        "max_remediation_actions": 10,
+        "monitor_interval_seconds": 60,
+        "crash_time_window_minutes": 15,
+        "resource_threshold_percent": 85,
+    },
+    "prometheus": {
+        "enabled": False,
+        "url": "http://localhost:9090",
+        "alertmanager_url": "http://localhost:9093",
+        "metrics_port": 8000,
+        "scrape_interval_seconds": 15,
     },
 }
 
