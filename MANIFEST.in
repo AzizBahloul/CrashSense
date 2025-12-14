@@ -1,0 +1,4 @@
+include README.md
+include pyproject.toml
+recursive-include src/data *.md
+recursive-include kb *.md
